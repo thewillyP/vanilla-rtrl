@@ -11,7 +11,10 @@ def compose(*callables):
     return lambda x: reduce(apply, callables, x)
 
 def createUnitSignal(startTime: float, duration: float) -> Callable[[float], float]:
-    return lambda t: 1.0 * (0 <= t - startTime <= duration) 
+    def test(t):
+        return 1.0 * float(0 <= t - startTime <= duration) 
+    return test
+    # return lambda t: 1.0 * (0 <= t - startTime <= duration) 
 
 """
     y(t) = x(t - t_1) + x(t - t_2)           (1)
@@ -22,10 +25,11 @@ def createAddMemoryTask(  t1: float
                         , a: float
                         , b: float
                         , t1_dur: float
-                        , t2_dur: float) -> Callable[[float], tuple[float, float, float]]:
-    x1 = compose(lambda x: a*x, createUnitSignal(t1, t1_dur))
-    x2 = compose(lambda x: b*x, createUnitSignal(t2, t2_dur))
-    y = lambda t: x1(t-t1) + x2(t-t2)
+                        , t2_dur: float
+                        , outT: float) -> Callable[[float], tuple[float, float, float]]:
+    x1 = compose(createUnitSignal(outT - t1, t1_dur), lambda x: a*x)
+    x2 = compose(createUnitSignal(outT - t2, t2_dur), lambda x: b*x)
+    y = lambda t: x1(t - t1) + x2(t - t2)
     return lambda t: (x1(t), x2(t), y(t))
 
 

@@ -1,4 +1,6 @@
 # %%
+import sys, os
+sys.path.append(os.path.abspath('../workspace'))
 import torch 
 import numpy as np
 from core import RNN
@@ -7,21 +9,21 @@ from functions import *
 from gen_data.Add_Memory_Task import *
 import matplotlib.pyplot as plt
 
-t1: float = 4
-t2: float = 6
+t1: float = 6
+t2: float = 4
 a: float = 2
-b: float = -2
+b: float = -1
 t1_dur: float = 0.99
 t2_dur: float = 0.99
-st, et = 0, 10
-domain = range(st, et)
-addMemoryTask = createAddMemoryTask(t1, t2, a, b, t1_dur, t2_dur)
-discretizedStates = map(addMemoryTask, domain)
+outT: float = 10
+st, et = 0, 11
+addMemoryTask = createAddMemoryTask(t1, t2, a, b, t1_dur, t2_dur, outT)
 
 # %% 
 plt.figure()
-plt.plot(np.arange(0, 15, 1000), list(map(addMemoryTask, np.arange(0, 15, 1000))))
+plt.plot(np.linspace(-3, 15, 1000), list(map(addMemoryTask, np.linspace(-3, 15, 1000))))
 plt.show()
+
 
 # W_in = np.eye(2)
 # W_rec = np.eye(2)
@@ -128,3 +130,5 @@ plt.show()
 #             #But that there was some difference from initialization
 #             self.assertFalse(np.isclose(self.rnn_1.W_rec,
 #                                         self.W_rec, atol=1e-4).all())
+
+# %%
