@@ -1,4 +1,6 @@
 import numpy as np
+from functions.Function import Function
+
 
 class RNN:
     """A vanilla recurrent neural network.
@@ -60,8 +62,17 @@ class RNN:
             of the network at current time, based on the equation (in TeX)
             J_{ij} = \alpha\phi'(h_i) W_{rec,ij} + (1 - \alpha)\delta_{ij}."""
 
-    def __init__(self, W_in, W_rec, W_out, b_rec, b_out,
-                 activation, alpha, output, loss, reset_sigma=None):
+    def __init__(  self
+                 , W_in: np.ndarray
+                 , W_rec: np.ndarray
+                 , W_out: np.ndarray
+                 , b_rec: np.ndarray
+                 , b_out: np.ndarray
+                 , activation: Function
+                 , alpha: float
+                 , output: Function
+                 , loss: Function
+                 , reset_sigma=None):
         """Initializes an RNN by specifying its initial parameter values;
         its activation, output, and loss functions; and alpha."""
 

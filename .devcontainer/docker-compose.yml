@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    container_name: owen
+    volumes:
+      - ..:/workspace:cached
+    ports:
+      - "9999:8888"
+    command: "sleep infinity"
