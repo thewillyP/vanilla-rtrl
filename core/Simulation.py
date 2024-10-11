@@ -146,10 +146,10 @@ class Simulation:
         #Set defaults
         self.a_initial = np.zeros(self.rnn.n_h)
         self.verbose = True
-        self.print_ = False
+        self.print_ = True
         self.test_current_task = True
-        self.report_accuracy = False
-        self.report_loss = False
+        self.report_accuracy = True
+        self.report_loss = True
         self.comp_algs = []
         self.report_interval = max(self.total_time_steps//10, 1)
         self.update_interval = 1
