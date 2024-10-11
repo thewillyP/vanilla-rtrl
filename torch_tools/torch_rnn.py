@@ -15,11 +15,11 @@ class Torch_RNN(nn.Module):
         self.n_h = W_rec.shape[0]
         self.n_out = W_out.shape[0]
 
-        self.W_rec = torch.nn.Parameter(torch.tensor(W_rec, requires_grad=True, dtype=torch.float32))
-        self.W_in = torch.nn.Parameter(torch.tensor(W_in, requires_grad=True, dtype=torch.float32))
-        self.b_rec = torch.nn.Parameter(torch.tensor(b_rec, requires_grad=True, dtype=torch.float32))
-        self.W_out = torch.nn.Parameter(torch.tensor(W_out, requires_grad=True, dtype=torch.float32))
-        self.b_out = torch.nn.Parameter(torch.tensor(b_out, requires_grad=True, dtype=torch.float32))
+        self.W_rec = torch.nn.Parameter(torch.tensor(W_rec, requires_grad=True, dtype=torch.float64))
+        self.W_in = torch.nn.Parameter(torch.tensor(W_in, requires_grad=True, dtype=torch.float64))
+        self.b_rec = torch.nn.Parameter(torch.tensor(b_rec, requires_grad=True, dtype=torch.float64))
+        self.W_out = torch.nn.Parameter(torch.tensor(W_out, requires_grad=True, dtype=torch.float64))
+        self.b_out = torch.nn.Parameter(torch.tensor(b_out, requires_grad=True, dtype=torch.float64))
 
         if activation == 'tanh':
             self.activation = torch.tanh
@@ -38,7 +38,7 @@ class Torch_RNN(nn.Module):
         self.h = state.matmul(self.W_rec.T) + X.matmul(self.W_in.T) + self.b_rec
         state = (1 - self.alpha) * state + self.alpha * self.activation(self.h)
         output = state.matmul(self.W_out.T) + self.b_out
-        return state, output
+        return state
 
     def compute_loss(self, output, label):
         """Hard-coded in identity-MSE loss."""

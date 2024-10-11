@@ -6,6 +6,7 @@ channels:
 dependencies:
   - python>=3.8
   - pip
+  - wheel
   - jupyterlab
   - pandas
   - matplotlib
@@ -14,5 +15,6 @@ dependencies:
   - scikit-learn
   - seaborn
   - pytorch
+  - toolz
 #  - pytorch-cuda=12.4
 #  - torchvision
