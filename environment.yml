@@ -17,4 +17,4 @@ dependencies:
   - pytorch
   - toolz
 #  - pytorch-cuda=12.4
-#  - torchvision
+  - torchvision

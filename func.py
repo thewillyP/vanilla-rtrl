@@ -11,3 +11,6 @@ def scan(f: Callable[[T, X], T], state: T, it: Iterator[X]) -> Generator[T, None
     for x in it:
         state = f(state, x)
         yield state
+
+reduce_ = curry(lambda fn, x, xs: reduce(fn, xs, x))
+
