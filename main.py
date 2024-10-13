@@ -17,7 +17,7 @@ from functions import *
 from gen_data.Add_Memory_Task import *
 import matplotlib.pyplot as plt
 from typing import TypeVar, Callable, Generic, Generator, Iterator
-from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take
+from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take, drop
 from functools import reduce
 import torchvision
 import torchvision.transforms as transforms
@@ -68,7 +68,7 @@ def createTransition(fn1: Callable[[H, P, X], H], fn2: Callable[[H, P], P]) -> C
         return h1, p1
     return dualTransition
 
-recurrence = compose(scan, createTransition)
+recurrence = compose(scan, createTransition)  # [hinit, h1, h2, h3, ...]
 
 @curry
 def rnnTransition(W_in, W_rec, b_rec, activation, alpha, h, x):
@@ -103,12 +103,17 @@ def initializeParametersIO(n_in: int, n_h: int, n_out: int
 linear_ = curry(lambda w, b, h: f.linear(h, w, bias=b))
 
 
-def supervisedLoss(   xs: Iterator[X]
-                    , ys: Iterator[Y]
-                    , rnnM: Callable[[Iterator[X]], Iterator[T]]
-                    , n: int
-                    , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
-    return map(lossFn, take_nth(n, rnnM(xs)), ys)
+def supervisedLoss(   lossFn: Callable[[T, Y], Z]
+                    , outputs: Iterator[X]
+                    , targets: Iterator[Y]) -> Iterator[Z]:
+    return map(lossFn, outputs, targets)  # drop the first readout since . what if n=1
+
+# def supervisedLoss(   xs: Iterator[X]
+#                     , ys: Iterator[Y]
+#                     , rnnM: Callable[[Iterator[X]], Iterator[T]]
+#                     , n: int
+#                     , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
+#     return map(lossFn, compose(drop(1), take_nth(n), rnnM)(xs), ys)  # drop the first readout since . what if n=1
 
 # def supervisedLoss(   zs: Iterator[tuple[X, Y]]
 #                     , rnnM: Callable[[Iterator[X]], Iterator[T]]
@@ -182,6 +187,7 @@ activation_ = f.relu
 
 
 hiddenTransition = lambda h, fp, x: fp(h, x)
+# hiddenTransition = lambda h, fp, x: x
 parameterTransition = lambda _, fp: fp
 getRnnSequence = recurrence(hiddenTransition, parameterTransition)
 
@@ -192,25 +198,32 @@ state0 = (h0, p0)
 
 rnnReadout = linear_(W_out_, b_out_)
 
+i = 0
+
 @curry
 def readout(state: tuple[np.ndarray, Callable]) -> Callable[[np.ndarray], np.ndarray]:
+    global i
+    print(i)
+    i+=1
     h, _ = state 
     return rnnReadout(h)
 
-myRnnModel = compose(map(readout), getRnnSequence(state0))
 
 
-
-loss = lambda supervision: f.cross_entropy(*supervision)
+loss = lambda output, target: f.cross_entropy(output, target)
 xs_, ys_ = tee(train_loader, 2)
-xtream, ystream = map(fst, xs_), map(snd, ys_)
+xtream, targets = map(fst, xs_), map(snd, ys_)
 getImages = map(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)) # [N, 1, 28, 28] -> [N, 28, 28] -> [28, N, 28]
 streamImageRows = compose(concat, getImages) # [28, N, 28] -> turn sequence into stream -> [N, 28] (batch, input vector) where each input vector is a row and 28 rows make an image
-lossSequence = supervisedLoss(streamImageRows(xtream), ystream, myRnnModel, 1, loss)
 
-# print(compose(list, take(1))(lossSequence))
+outputs = compose(map(readout), drop(1), take_nth(sequence_length), getRnnSequence(state0), streamImageRows)  # rnnModel -> [initial, x1, x2, ...]. drop(1) to skip initial and take every 28th input
+
+lossSequence = supervisedLoss(loss, outputs(xtream), targets)
+
+print(list(take(2, lossSequence)))
 # print(compose(list, map(lambda x: x.dtype), take(2), streamImageRows)(xtream))
-print(compose(list, take(2), myRnnModel, streamImageRows)(xtream))
+# print(compose(list, take(1), zip(myRnnModel(streamImageRows(xtream)), ystream)))
+# print(compose(list, take(1), myRnnModel, streamImageRows)(xtream))
 # print(compose(list, take(1), map(type), map(lambda x: x[1][0]), enumerate)(xtream))
 
 
