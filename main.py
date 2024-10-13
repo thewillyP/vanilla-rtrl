@@ -4,7 +4,7 @@ import sys, os
 
 from torch_tools.torch_rnn import Torch_RNN
 sys.path.append(os.path.abspath('../workspace'))
-from func import scan, reduce_, swap, uncurry
+from func import fst, snd, scan, reduce_, swap, uncurry
 from learning_algorithms import Future_BPTT
 from optimizers import Stochastic_Gradient_Descent
 import torch 
@@ -74,12 +74,13 @@ recurrence = compose(scan, createTransition)
 def rnnTransition(W_in, W_rec, b_rec, activation, alpha, h, x):
     return (1 - alpha) * h + alpha * activation(f.linear(x, W_in, bias=None) + f.linear(h, W_rec, bias=b_rec))
 
-
+@curry
 def randomWeightQRIO(n: int, m: int):
-    return torch.nn.Parameter(torch.tensor(np.linalg.qr(np.random.normal(0, 1, (n, m)))[0], requires_grad=True, dtype=torch.float64))
+    return torch.nn.Parameter(torch.tensor(np.linalg.qr(np.random.normal(0, 1, (n, m)))[0], requires_grad=True, dtype=torch.float32))
 
+@curry
 def randomWeightIO(shape):
-    return torch.nn.Parameter(torch.tensor(np.random.normal(0, np.sqrt(1/shape[-1]), shape), requires_grad=True, dtype=torch.float64))
+    return torch.nn.Parameter(torch.tensor(np.random.normal(0, np.sqrt(1/shape[-1]), shape), requires_grad=True, dtype=torch.float32))
 
 
 @curry
@@ -91,11 +92,11 @@ def initializeParametersIO(n_in: int, n_h: int, n_out: int
     b_rec = np.random.normal(0, np.sqrt(1/(n_h)), (n_h,))
     b_out = np.random.normal(0, np.sqrt(1/(n_out)), (n_out,))
 
-    _W_rec = torch.nn.Parameter(torch.tensor(W_rec, requires_grad=True, dtype=torch.float64))
-    _W_in = torch.nn.Parameter(torch.tensor(W_in, requires_grad=True, dtype=torch.float64))
-    _b_rec = torch.nn.Parameter(torch.tensor(b_rec, requires_grad=True, dtype=torch.float64))
-    _W_out = torch.nn.Parameter(torch.tensor(W_out, requires_grad=True, dtype=torch.float64))
-    _b_out = torch.nn.Parameter(torch.tensor(b_out, requires_grad=True, dtype=torch.float64))
+    _W_rec = torch.nn.Parameter(torch.tensor(W_rec, requires_grad=True, dtype=torch.float32))
+    _W_in = torch.nn.Parameter(torch.tensor(W_in, requires_grad=True, dtype=torch.float32))
+    _b_rec = torch.nn.Parameter(torch.tensor(b_rec, requires_grad=True, dtype=torch.float32))
+    _W_out = torch.nn.Parameter(torch.tensor(W_out, requires_grad=True, dtype=torch.float32))
+    _b_out = torch.nn.Parameter(torch.tensor(b_out, requires_grad=True, dtype=torch.float32))
 
     return _W_rec, _W_in, _b_rec, _W_out, _b_out
 
@@ -109,11 +110,11 @@ def supervisedLoss(   xs: Iterator[X]
                     , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
     return map(lossFn, take_nth(n, rnnM(xs)), ys)
 
-def supervisedLoss(   zs: Iterator[tuple[X, Y]]
-                    , rnnM: Callable[[Iterator[X]], Iterator[T]]
-                    , n: int
-                    , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
-    return map(lossFn, take_nth(n, rnnM(xs)), ys)
+# def supervisedLoss(   zs: Iterator[tuple[X, Y]]
+#                     , rnnM: Callable[[Iterator[X]], Iterator[T]]
+#                     , n: int
+#                     , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
+#     return map(lossFn, take_nth(n, rnnM(xs)), ys)
 
 
 # buildRnnLayers: Callable[[tuple[Callable[[X, X], X], X]], Callable[[X], X]] = compose(accumulate(compose), map(uncurry(apply)))
@@ -185,8 +186,8 @@ parameterTransition = lambda _, fp: fp
 getRnnSequence = recurrence(hiddenTransition, parameterTransition)
 
 W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
-p0 = rnnTransition(W_in_, W_rec_, b_rec_, f.relu, alpha_)
-h0 = torch.zeros(1, hidden_size, dtype=torch.float64)
+p0 = rnnTransition(W_in_, W_rec_, b_rec_, f.tanh, alpha_)
+h0 = torch.zeros(batch_size, hidden_size, dtype=torch.float32)
 state0 = (h0, p0)
 
 rnnReadout = linear_(W_out_, b_out_)
@@ -196,19 +197,24 @@ def readout(state: tuple[np.ndarray, Callable]) -> Callable[[np.ndarray], np.nda
     h, _ = state 
     rnnReadout(h)
 
-myRnnModel = compose(map(readout), getRnnSequence(state0))
+myRnnModel = getRnnSequence(state0) #compose(map(readout), getRnnSequence(state0))
 
 
 
 loss = lambda supervision: f.cross_entropy(*supervision)
 xs_, ys_ = tee(train_loader, 2)
+xtream, ystream = map(fst, xs_), map(snd, ys_)
 getImages = map(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)) # [N, 1, 28, 28] -> [N, 28, 28] -> [28, N, 28]
-streamImageRows = compose(concat, getImages)
-lossSequence = supervisedLoss(streamImageRows(xs_), ys_, myRnnModel, 1, loss)
+streamImageRows = compose(concat, getImages) # [28, N, 28] -> turn sequence into stream -> [N, 28] (batch, input vector) where each input vector is a row and 28 rows make an image
+lossSequence = supervisedLoss(streamImageRows(xtream), ystream, myRnnModel, 1, loss)
 
-# print(compose(list, take(10), streamImageRows)(xs_))
-print(compose(list, take(1), map(type), map(lambda x: x[1][0]), enumerate)(xs_))
+# print(compose(list, take(1))(lossSequence))
+# print(compose(list, map(lambda x: x.dtype), take(2), streamImageRows)(xtream))
+print(compose(list, map(lambda x: x[0].shape), take(3), myRnnModel, streamImageRows)(xtream))
+# print(compose(list, take(1), map(type), map(lambda x: x[1][0]), enumerate)(xtream))
 
+
+# usage of lot of maps implies I can refactor to compose functions and do one big map instead
 
 # for epoch in range(num_epochs):
 #     for i, (images, labels) in enumerate(train_loader):  

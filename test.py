@@ -85,9 +85,9 @@ optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 xs, ys = tee(train_loader, 2)
 
 print(ys)
-for images in xs:  
+for (images, targets) in xs:  
     print(type(images))
-    print(len(images[1]))
+    print(len(images))
 
     quit()
 
