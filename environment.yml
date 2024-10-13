@@ -16,5 +16,6 @@ dependencies:
   - seaborn
   - pytorch
   - toolz
+  - memory_profiler
 #  - pytorch-cuda=12.4
   - torchvision

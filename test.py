@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
+from itertools import tee
 
 # Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -16,7 +17,7 @@ learning_rate = 0.001
 input_size = 28
 sequence_length = 28
 hidden_size = 128
-num_layers = 2
+num_layers = 1
 
 # MNIST dataset 
 train_dataset = torchvision.datasets.MNIST(root='./data', 
@@ -81,10 +82,22 @@ model = RNN(input_size, hidden_size, num_layers, num_classes).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)  
 
+xs, ys = tee(train_loader, 2)
+
+print(ys)
+for images in xs:  
+    print(type(images))
+    print(len(images[1]))
+
+    quit()
+
+
 # Train the model
 n_total_steps = len(train_loader)
 for epoch in range(num_epochs):
     for i, (images, labels) in enumerate(train_loader):  
+        print(type(images))
+        quit()
         # origin shape: [N, 1, 28, 28]
         # resized: [N, 28, 28]
         images = images.reshape(-1, sequence_length, input_size).to(device)

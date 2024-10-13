@@ -1,9 +1,10 @@
 # %%
 import sys, os
 
+
 from torch_tools.torch_rnn import Torch_RNN
 sys.path.append(os.path.abspath('../workspace'))
-from func import scan
+from func import scan, reduce_, swap, uncurry
 from learning_algorithms import Future_BPTT
 from optimizers import Stochastic_Gradient_Descent
 import torch 
@@ -16,10 +17,11 @@ from functions import *
 from gen_data.Add_Memory_Task import *
 import matplotlib.pyplot as plt
 from typing import TypeVar, Callable, Generic, Generator, Iterator
-from toolz import curry, compose, identity
-
+from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take
 from functools import reduce
-
+import torchvision
+import torchvision.transforms as transforms
+from itertools import tee
 
 
 """
@@ -52,6 +54,9 @@ T = TypeVar('T')  # T can be any type
 H = TypeVar('H')
 P = TypeVar('P')
 X = TypeVar('X')
+Y = TypeVar('Y')
+Z = TypeVar('Z')
+
 
 @curry
 def createTransition(fn1: Callable[[H, P, X], H], fn2: Callable[[H, P], P]) -> Callable[[tuple[H, P], X], tuple[H, P]]:
@@ -68,6 +73,14 @@ recurrence = compose(scan, createTransition)
 @curry
 def rnnTransition(W_in, W_rec, b_rec, activation, alpha, h, x):
     return (1 - alpha) * h + alpha * activation(f.linear(x, W_in, bias=None) + f.linear(h, W_rec, bias=b_rec))
+
+
+def randomWeightQRIO(n: int, m: int):
+    return torch.nn.Parameter(torch.tensor(np.linalg.qr(np.random.normal(0, 1, (n, m)))[0], requires_grad=True, dtype=torch.float64))
+
+def randomWeightIO(shape):
+    return torch.nn.Parameter(torch.tensor(np.random.normal(0, np.sqrt(1/shape[-1]), shape), requires_grad=True, dtype=torch.float64))
+
 
 @curry
 def initializeParametersIO(n_in: int, n_h: int, n_out: int
@@ -88,11 +101,81 @@ def initializeParametersIO(n_in: int, n_h: int, n_out: int
 
 linear_ = curry(lambda w, b, h: f.linear(h, w, bias=b))
 
+
+def supervisedLoss(   xs: Iterator[X]
+                    , ys: Iterator[Y]
+                    , rnnM: Callable[[Iterator[X]], Iterator[T]]
+                    , n: int
+                    , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
+    return map(lossFn, take_nth(n, rnnM(xs)), ys)
+
+def supervisedLoss(   zs: Iterator[tuple[X, Y]]
+                    , rnnM: Callable[[Iterator[X]], Iterator[T]]
+                    , n: int
+                    , lossFn: Callable[[T, Y], Z]) -> Iterator[Z]:
+    return map(lossFn, take_nth(n, rnnM(xs)), ys)
+
+
+# buildRnnLayers: Callable[[tuple[Callable[[X, X], X], X]], Callable[[X], X]] = compose(accumulate(compose), map(uncurry(apply)))
+
+# wrong, it needs to be win, wh1 wh2 wh3 wout
+# def createRnnLayers(W_ins, W_recs, b_recs, activation: Callable, alpha: float):
+#     @curry
+#     def rnnTransition_(act, aph, wins, wrecs, brecs):
+#         return rnnTransition(wins, wrecs, brecs, act, aph)
+#     return map(rnnTransition_(activation, alpha), W_ins, W_recs, b_recs)
+
+
+# def randomRNNInitsIO(nlayers: int, n_in: int, n_rec: int, n_out: int):
+#     return (randomWeightIO((n_rec, n_in)) for _ in range(nlayers))
+
+
+# given a [(state1, f: state1 -> state2 -> state1)] -> [state1]
+# given a [(f: state1 -> x -> state1, state1)] -> [state1]
+
+# just map apply and then compose functions
+
+# compose(reduce_(lambda s, fn: fn(s), s0), map(lambda s, ffn: ffn(s)))
+
+# p0 = rnnTransition(W_in_, W_rec_, b_rec_, f.relu, alpha_)
+
+
+#%%
+
+# Hyper-parameters 
+# input_size = 784 # 28x28
+num_classes = 10
+num_epochs = 2
+batch_size = 100
+learning_rate = 0.001
+
+input_size = 28
+sequence_length = 28
+hidden_size = 128
+num_layers = 2
+
+# MNIST dataset 
+train_dataset = torchvision.datasets.MNIST(root='./data', 
+                                        train=True, 
+                                        transform=transforms.ToTensor(),  
+                                        download=True)
+
+test_dataset = torchvision.datasets.MNIST(root='./data', 
+                                        train=False, 
+                                        transform=transforms.ToTensor())
+
+# Data loader
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, 
+                                        batch_size=batch_size, 
+                                        shuffle=True)
+
+test_loader = torch.utils.data.DataLoader(dataset=test_dataset, 
+                                        batch_size=batch_size, 
+                                        shuffle=False)
+
+
 #%% Setup RNN
 
-n_in_: int = 2
-n_h_: int = 16
-n_out_: int = 1
 alpha_ = 1
 activation_ = f.relu
 
@@ -101,20 +184,51 @@ hiddenTransition = lambda h, fp, x: fp(h, x)
 parameterTransition = lambda _, fp: fp
 getRnnSequence = recurrence(hiddenTransition, parameterTransition)
 
-W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(n_in_, n_h_, n_out_)
+W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
 p0 = rnnTransition(W_in_, W_rec_, b_rec_, f.relu, alpha_)
-h0 = torch.zeros(1, n_h_, dtype=torch.float64)
+h0 = torch.zeros(1, hidden_size, dtype=torch.float64)
 state0 = (h0, p0)
 
 rnnReadout = linear_(W_out_, b_out_)
-rnnLoss = lambda target: compose(curry(f.cross_entropy), rnnReadout)
 
 @curry
-def readout(state):
+def readout(state: tuple[np.ndarray, Callable]) -> Callable[[np.ndarray], np.ndarray]:
     h, _ = state 
     rnnReadout(h)
 
-myRnnModel = compose(curry(map)(readout), getRnnSequence(state0))
+myRnnModel = compose(map(readout), getRnnSequence(state0))
+
+
+
+loss = lambda supervision: f.cross_entropy(*supervision)
+xs_, ys_ = tee(train_loader, 2)
+getImages = map(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)) # [N, 1, 28, 28] -> [N, 28, 28] -> [28, N, 28]
+streamImageRows = compose(concat, getImages)
+lossSequence = supervisedLoss(streamImageRows(xs_), ys_, myRnnModel, 1, loss)
+
+# print(compose(list, take(10), streamImageRows)(xs_))
+print(compose(list, take(1), map(type), map(lambda x: x[1][0]), enumerate)(xs_))
+
+
+# for epoch in range(num_epochs):
+#     for i, (images, labels) in enumerate(train_loader):  
+#         # origin shape: [N, 1, 28, 28]
+#         # resized: [N, 28, 28]
+#         images = images.reshape(-1, sequence_length, input_size).to(device)
+#         labels = labels.to(device)
+        
+#         # Forward pass
+#         outputs = model(images)
+#         loss = criterion(outputs, labels)
+        
+#         # Backward and optimize
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+        
+#         if (i+1) % 100 == 0:
+#             print (f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{n_total_steps}], Loss: {loss.item():.4f}')
+
 
 
 
