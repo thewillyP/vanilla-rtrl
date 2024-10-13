@@ -1,5 +1,7 @@
 # %%
 import sys, os
+import time
+from memory_profiler import profile
 
 
 from torch_tools.torch_rnn import Torch_RNN
@@ -56,6 +58,8 @@ P = TypeVar('P')
 X = TypeVar('X')
 Y = TypeVar('Y')
 Z = TypeVar('Z')
+S = TypeVar('S')
+
 
 
 @curry
@@ -68,7 +72,21 @@ def createTransition(fn1: Callable[[H, P, X], H], fn2: Callable[[H, P], P]) -> C
         return h1, p1
     return dualTransition
 
+# don't want to crack out State Monad in python so resort to code duplication. Also don't want to have to make all my transition functions have to thread state which is unclean
+@curry
+def createTransitionStateM(fn1: Callable[[H, P, X], H], fn2: Callable[[H, P], P], put: Callable[[S, H, P], tuple[S, H, P]]) -> Callable[[tuple[S, H, P], X], tuple[S, H, P]]:
+    @curry
+    def dualTransitionStateM(state: tuple[S, H, P], x: X) -> tuple[S, H, P]:
+        s_, h0_, p0_ = state 
+        s, h0, p0 = put(s_, h0_, p0_)
+        h1 = fn1(h0, p0, x)
+        p1 = fn2(h1, p0)
+        return s, h1, p1
+    return dualTransitionStateM
+
+
 recurrence = compose(scan, createTransition)  # [hinit, h1, h2, h3, ...]
+recurrenceStateM = compose(scan, createTransitionStateM)
 
 @curry
 def rnnTransition(W_in, W_rec, b_rec, activation, alpha, h, x):
@@ -191,6 +209,8 @@ hiddenTransition = lambda h, fp, x: fp(h, x)
 parameterTransition = lambda _, fp: fp
 getRnnSequence = recurrence(hiddenTransition, parameterTransition)
 
+
+
 W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
 p0 = rnnTransition(W_in_, W_rec_, b_rec_, f.tanh, alpha_)
 h0 = torch.zeros(batch_size, hidden_size, dtype=torch.float32)
@@ -198,29 +218,57 @@ state0 = (h0, p0)
 
 rnnReadout = linear_(W_out_, b_out_)
 
-i = 0
 
 @curry
 def readout(state: tuple[np.ndarray, Callable]) -> Callable[[np.ndarray], np.ndarray]:
-    global i
-    print(i)
-    i+=1
+    # global i
+    # # print(i)
+    # i+=1
     h, _ = state 
     return rnnReadout(h)
 
 
 
-loss = lambda output, target: f.cross_entropy(output, target)
-xs_, ys_ = tee(train_loader, 2)
-xtream, targets = map(fst, xs_), map(snd, ys_)
-getImages = map(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)) # [N, 1, 28, 28] -> [N, 28, 28] -> [28, N, 28]
-streamImageRows = compose(concat, getImages) # [28, N, 28] -> turn sequence into stream -> [N, 28] (batch, input vector) where each input vector is a row and 28 rows make an image
 
-outputs = compose(map(readout), drop(1), take_nth(sequence_length), getRnnSequence(state0), streamImageRows)  # rnnModel -> [initial, x1, x2, ...]. drop(1) to skip initial and take every 28th input
+@curry
+def stopComputationalGraph(n0, s, h, p):
+    return (1, h.detach(), p) if n0 == s else (s+1, h, p)
 
-lossSequence = supervisedLoss(loss, outputs(xtream), targets)
+def hideStateM(triplet):
+    _, h, p = triplet
+    return h, p
 
-print(list(take(2, lossSequence)))
+getRNNSequenceStateM = recurrenceStateM(hiddenTransition, parameterTransition, stopComputationalGraph(sequence_length))
+stateM0 = (1, h0, p0)
+
+
+
+@profile
+def test():
+
+    # with torch.no_grad():  # this makes no computation graph build up. 
+    loss = lambda output, target: f.cross_entropy(output, target)
+    xs_, ys_ = tee(train_loader, 2)
+    xtream, targets = map(fst, xs_), map(snd, ys_)
+    getImages = map(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)) # [N, 1, 28, 28] -> [N, 28, 28] -> [28, N, 28]
+    streamImageRows = compose(concat, getImages) # [28, N, 28] -> turn sequence into stream -> [N, 28] (batch, input vector) where each input vector is a row and 28 rows make an image
+
+    # outputs = compose(map(readout), drop(1), take_nth(sequence_length), getRnnSequence(state0), streamImageRows)  # rnnModel -> [initial, x1, x2, ...]. drop(1) to skip initial and take every 28th input
+    outputs = compose(map(readout), drop(1), take_nth(sequence_length), map(hideStateM), getRNNSequenceStateM(stateM0), streamImageRows)  # rnnModel -> [initial, x1, x2, ...]. drop(1) to skip initial and take every 28th input
+
+
+
+    lossSequence = supervisedLoss(loss, outputs(xtream), targets)
+
+    start = time.time()
+    for x in take(100, lossSequence):
+        pass
+    end = time.time()
+    print(end - start)
+
+if __name__ == '__main__':
+    test()
+
 # print(compose(list, map(lambda x: x.dtype), take(2), streamImageRows)(xtream))
 # print(compose(list, take(1), zip(myRnnModel(streamImageRows(xtream)), ystream)))
 # print(compose(list, take(1), myRnnModel, streamImageRows)(xtream))
