@@ -195,9 +195,9 @@ rnnReadout = linear_(W_out_, b_out_)
 @curry
 def readout(state: tuple[np.ndarray, Callable]) -> Callable[[np.ndarray], np.ndarray]:
     h, _ = state 
-    rnnReadout(h)
+    return rnnReadout(h)
 
-myRnnModel = getRnnSequence(state0) #compose(map(readout), getRnnSequence(state0))
+myRnnModel = compose(map(readout), getRnnSequence(state0))
 
 
 
@@ -210,7 +210,7 @@ lossSequence = supervisedLoss(streamImageRows(xtream), ystream, myRnnModel, 1, l
 
 # print(compose(list, take(1))(lossSequence))
 # print(compose(list, map(lambda x: x.dtype), take(2), streamImageRows)(xtream))
-print(compose(list, map(lambda x: x[0].shape), take(3), myRnnModel, streamImageRows)(xtream))
+print(compose(list, take(2), myRnnModel, streamImageRows)(xtream))
 # print(compose(list, take(1), map(type), map(lambda x: x[1][0]), enumerate)(xtream))
 
 
