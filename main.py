@@ -72,11 +72,8 @@ lossFn = lambda h, t: f.cross_entropy(linear_(W_out_, b_out_, h), t)
 p0 = rnnTransition(W_in_, W_rec_, b_rec_, activation_, alpha_)
 h0 = torch.zeros(batch_size, hidden_size, dtype=torch.float32)
 stateM0 = (0, h0, (p0, lossFn))
-getHiddenStates = getHiddenStatesStateful(composeST(incrementCounter, resetHiddenStateAt(sequence_length, h0)))
+getHiddenStates = getHiddenStatesStateful(resetHiddenStateAt(sequence_length, h0))
 
-def lossFnIO(step, h, t):
-    loss = lossFn(h, t)
-    print (f'Step [{step+1}/{len(train_loader)}], Loss: {loss.item():.4f}')
 
 
 # I don't want to apply statem0 immed since I might want to start with a trained version isntead

@@ -50,6 +50,8 @@ nonAutonomousStateful = curry(compose(scan, createRecurrenceBinopStateful))
 def rnnTransition(W_in, W_rec, b_rec, activation, alpha, h, x):
     return (1 - alpha) * h + alpha * activation(f.linear(x, W_in, bias=None) + f.linear(h, W_rec, bias=b_rec))
 
+rnnTransition_ = curry(lambda actv, alph, win, wrec, brec, h, x: rnnTransition(win, wrec, brec, actv, alph, h, x))
+
 @curry
 def randomWeightQRIO(n: int, m: int):
     return torch.nn.Parameter(torch.tensor(np.linalg.qr(np.random.normal(0, 1, (n, m)))[0], requires_grad=True, dtype=torch.float32))
@@ -92,23 +94,8 @@ def hideStateful(triplet):
 
 @curry
 def resetHiddenStateAt(n0, h_reset, s, h, p):
-    return (0, h_reset, p) if s % n0 == 0 else (s, h, p)
+    return (1, h_reset, p) if n0 == s else (s+1, h, p)
 
-@curry
-def incrementCounter(s, h, p):
-    return (s+1, h, p)
-
-@curry # code dup bc trying to compose 3 args at once
-def composeST(st2, st1):
-    def c(s, h, p):
-        s1, h1, p1 = st1(s, h, p)
-        return st2(s1, h1, p1)
-    return c
-
-
-# @curry
-# def printLossAt(n0, fIO, s, h, p):
-#     return (s, h, p) if n0 == s else (s+1, h, p)
 
 
 linear_ = curry(lambda w, b, h: f.linear(h, w, bias=b))
@@ -117,16 +104,59 @@ linear_ = curry(lambda w, b, h: f.linear(h, w, bias=b))
 
 noParamUpdate = lambda _, fp, __: fp
 
+@curry
 def updateHiddenState(h, parameters, observation):
     x, _ = observation
     forwProp, _ = parameters
     return forwProp(h, x)
 
-def backProp(h, parameters, observation):
+# TODO: Figure out how to make this purely functional alter. 
+@curry
+def updateParameterState(optimizer, h, parameters, observation):
     _, label = observation
-    _, lossFn = parameters
-    lossFn(h, label)
-    pass  # TODO
+    forwProp, lossFn = parameters
+    loss = lossFn(h, label)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    return (forwProp, lossFn)  # autograd state implictly updates these guys. 
+
+
+# def closure1(forwProp, h, parameters, observation):
+#     x, _ = observation
+#     return forwProp(parameters, h, x)
+
+
+
+# @curry
+# def updateParameterState( backProp: Callable[[torch.Tensor], tuple[torch.Tensor, ...]]
+#                         , createTransition: Callable[[tuple[torch.Tensor, ...], Callable[[H, X], H]]]
+#                         , createLossFn: Callable[[H, Y], torch.Tensor]
+#                         , h: H
+#                         , parameters
+#                         , observation: tuple[X, Y]):
+#     _, label = observation
+#     _, lossFn = parameters  # lossFn = loss .  readout
+#     loss = lossFn(h, label)
+#     parameterized: tuple[torch.Tensor, ...] = backProp(loss)
+#     return createTransition(parameterized), createLossFn(parameterized)
+
+#     # return createTransition(W_in_, W_rec_, b_rec), createLossFn(W_out, b_out)
+#     #rnnTransition' = rnnTransition_(act, alph)  <-- comes from user defined. 
+#     pass  # TODO, returns rnnTransition'(win', wrec', wbin')
+
+
+
+
+# @curry 
+# def temp(updateForw, h, parameters, observation):
+#     return updateForw(h, parameters, observation)
+
+# def backProp(h, parameters, observation):
+#     _, label = observation
+#     forwardProp = parameters
+#     torch.autograd.grad()
+
 
 # optimizer.zero_grad()
 # l.backward()
@@ -156,8 +186,61 @@ def epochsIO(n: int, loader: torch.utils.data.DataLoader):
 
 
 
+"""
+parameter should be a function that takes a previous hidden state and returns a new hidden state.
+Therefore, parameter ought to be the forward propagate. 
+OHO: forw= NN forw + backprop. 
+Backprop needs: loss, label, nn output, current theta, optimizer needs to be here to combine prev theta with new -> new theta. 
+forw needs: x, current theta -> nn output. 
+
+But what if NN is an RNN? 
+For the forw output to go through, I need both x, current theta, AND prev hidden state.
+This is only true IF we dont reset RNN hidden state after each training iteration. 
+Question is, should we pass RNN hidden state from oe training session to the next?
+Sure, we should allow. Therefore the forward pass outputs a tuple: (theta_i+1, hidden_i+1)
+
+Update: is it static? Yes, the update rules for updating the forward pass do not change since they are parameterized by meta learning rate.
+Given a closure, it takes the current forward pass, the readout which is not a function of x, but of x_val
+
+observation = (x_train, y_train, x_val, y_val)
+fp = parameter = factory(hidden_i-1, loss, x_train, y_train) -> hidden_i
+h = hidden_i-1 
+
+observation = (x_train, y_train)
+fp = parameter = rnn(hidden_i-1, x_train) - > hidden_i
+
+OHO: fp is a factory
+RNN: fp is just rnn forward. 
+
+updateParameter: stuff -> factory
+updateParameter: stuff -> rnn(...)
+
+Vanila:
+forw: needs x, curr hidden state -> output
+backward: 
+
+
+OHO needs to nest two recurrence sequence. One for the forward where forward does the whole rnn training sequence on x number batches.
+
+OHO readout is loss perf on validation data. That is our loss.
+Vanilla readout is just linear readout
+Both readout and transition are updated since both are functions of parameter.
+OHO: readout is not a function of hyperparameters. Readout just takes the hidden state and computes a loss on them.
+This is not require using hyperparameters a.k.a weights analogy.
+
+But in Van, the readout is a function of the weights a.k.k hyperparaneters. 
+
+So in OHO, dont expect readout fn to change, but in rnn, do change them. 
+
+The only thing readout needs in either is the previous hidden state and the labels. 
+So no need for the input
+
 
 """
+
+
+
+"""S
 I still need to pass in parameters as functions to updateHiddenState because if my backprop updates my functions,
 the hidden transition function should update as well. So I can't preset what the forward pass should be. 
 """
