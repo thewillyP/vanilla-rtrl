@@ -31,7 +31,7 @@ from scan import *
 # Hyper-parameters 
 # input_size = 784 # 28x28
 num_classes = 10
-num_epochs = 2
+num_epochs = 1
 batch_size = 100
 
 input_size = 28
@@ -68,12 +68,18 @@ test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
 
 
 W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
-readout = compose(linear_(W_out_, b_out_), fst)
+lossFn = lambda h, t: f.cross_entropy(linear_(W_out_, b_out_, h), t)
 p0 = rnnTransition(W_in_, W_rec_, b_rec_, activation_, alpha_)
 h0 = torch.zeros(batch_size, hidden_size, dtype=torch.float32)
-stateM0 = (0, h0, (p0, None))
-hiddenStates = getHiddenStatesStateful(resetHiddenStateAt(sequence_length, h0))(stateM0)
+stateM0 = (0, h0, (p0, lossFn))
+getHiddenStates = getHiddenStatesStateful(composeST(incrementCounter, resetHiddenStateAt(sequence_length, h0)))
 
+def lossFnIO(step, h, t):
+    loss = lossFn(h, t)
+    print (f'Step [{step+1}/{len(train_loader)}], Loss: {loss.item():.4f}')
+
+
+# I don't want to apply statem0 immed since I might want to start with a trained version isntead
 
 
 
@@ -90,8 +96,8 @@ def predict(output, target):
     return (n_samples, n_correct)
 
 
-accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
-                    , totalStatistic(predict, lambda res, pair: (res[0] + pair[0], res[1] + pair[1])))
+# accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
+#                     , totalStatistic(predict, lambda res, pair: (res[0] + pair[0], res[1] + pair[1])))
 
 #%%
 
@@ -99,31 +105,31 @@ accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
 # @profile
 def test():
 
-    image2Rows = compose(traverseTuple, mapTuple1(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)))
-    sequentializeImage = mapcat(image2Rows) # [28, N, 28] -> [N, 28] (batch, input vector)
-    outputs = compose(map(compose(readout, hideStateful))
-                    , drop(1)  # non-autnonmous scan returns h0 w/o +input, whose readout we don't care
-                    , take_nth(sequence_length)
-                    , hiddenStates  
-                    , sequentializeImage) 
-    doEpochs = mapcat(uncurry(supervisions(f.cross_entropy, outputs)))
+    image2Rows = compose(traverseTuple, mapTuple1(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)))  # [28, N, 28] -> [N, 28] (batch, input vector)
+    
+    getOutputs = lambda initState: compose(map(hideStateful)
+                                        , drop(1)  # non-autnonmous scan returns h0 w/o +input, whose readout we don't care
+                                        , take_nth(sequence_length)
+                                        , getHiddenStates(initState)  
+                                        , mapcat(image2Rows)) 
+    
+    outputs = getOutputs(stateM0)
+    doEpochs = mapcat(outputs)
     epochs = epochsIO(num_epochs, train_loader)
 
     start = time.time()
-    for i, l in enumerate(doEpochs(epochs)):  # Ideally I would want to get the new weights, then update my transition function
-        optimizer.zero_grad()
-        l.backward()
-        optimizer.step()
+    for i, (h, fp) in enumerate(doEpochs(epochs)):  # Ideally I would want to get the new weights, then update my transition function
         if (i+1) % 100 == 0:
-                print (f'Epoch [{1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {l.item():.4f}')
-    end = time.time()
-    print(end - start)
+            print(h)
+            # print (f'Epoch [{1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {l.item():.4f}')
+    # end = time.time()
+    # print(end - start)
 
-    # Get prediction accuracy
-    with torch.no_grad():
-        xs_test, ys_test = tee(test_loader, 2)
-        xtream_test, targets_test = map(fst, xs_test), map(snd, ys_test)
-        print(accuracy(outputs, xs_test, targets_test))
+    # # Get prediction accuracy
+    # with torch.no_grad():
+    #     xs_test, ys_test = tee(test_loader, 2)
+    #     xtream_test, targets_test = map(fst, xs_test), map(snd, ys_test)
+    #     # print(accuracy(# TODO -> outputs, xs_test, targets_test))
 
 if __name__ == '__main__':
     test()

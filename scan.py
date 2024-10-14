@@ -77,12 +77,12 @@ def initializeParametersIO(n_in: int, n_h: int, n_out: int
     return _W_rec, _W_in, _b_rec, _W_out, _b_out
 
 
-@curry
-def supervisions( lossFn: Callable[[T, Y], Z]
-                , outputMap: Callable[[Iterator[X]], Iterator[T]]
-                , inputs: Iterator[X]
-                , targets: Iterator[Y]) -> Iterator[Z]:
-    return map(lossFn, outputMap(inputs), targets) 
+# @curry
+# def supervisions( lossFn: Callable[[T, Y], Z]
+#                 , outputMap: Callable[[Iterator[X]], Iterator[T]]
+#                 , inputs: Iterator[X]
+#                 , targets: Iterator[Y]) -> Iterator[Z]:
+#     return map(lossFn, outputMap(inputs), targets) 
 
 
 @curry
@@ -92,8 +92,23 @@ def hideStateful(triplet):
 
 @curry
 def resetHiddenStateAt(n0, h_reset, s, h, p):
-    return (1, h_reset, p) if n0 == s else (s+1, h, p)
+    return (0, h_reset, p) if s % n0 == 0 else (s, h, p)
 
+@curry
+def incrementCounter(s, h, p):
+    return (s+1, h, p)
+
+@curry # code dup bc trying to compose 3 args at once
+def composeST(st2, st1):
+    def c(s, h, p):
+        s1, h1, p1 = st1(s, h, p)
+        return st2(s1, h1, p1)
+    return c
+
+
+# @curry
+# def printLossAt(n0, fIO, s, h, p):
+#     return (s, h, p) if n0 == s else (s+1, h, p)
 
 
 linear_ = curry(lambda w, b, h: f.linear(h, w, bias=b))
@@ -124,16 +139,13 @@ getHiddenStatesStateful = lambda updateState: nonAutonomousStateful(  updateHidd
                                                                     , updateState)
 
 
-def separateLabelsIO(loader):
-    as_, bs_ = tee(loader, 2)
-    return as_, map(snd, bs_)
 
-def epochsIO(n: int, loader):
-    return (separateLabelsIO(loader) for _ in range(n))
+def epochsIO(n: int, loader: torch.utils.data.DataLoader):
+    return (loader for _ in range(n))
 
 
-def totalStatistic(compare: Callable[[X, Y], Z], aggregate: Callable[[Z, Z], T]):
-    return compose(curry(reduce)(aggregate), supervisions(compare))
+# def totalStatistic(compare: Callable[[X, Y], Z], aggregate: Callable[[Z, Z], T]):
+#     return compose(curry(reduce)(aggregate), supervisions(compare))
 
 
 # def backPropagateIO(loss, optimizer):
