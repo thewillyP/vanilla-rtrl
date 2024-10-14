@@ -4,7 +4,7 @@ from memory_profiler import profile
 from itertools import tee
 
 from func import *
-from toolz.curried import accumulate, last, compose, take, map
+from toolz.curried import accumulate, last, compose, take, map, mapcat
 from operator import add
 
 
@@ -13,7 +13,10 @@ from operator import add
 
 add_ = curry(add)
 
-print(curry(compose(add_, add_(1)))(1, 2))
+# print(curry(compose(add_(1), add))(1)(2))
+
+test = lambda x: [a + 1 for a in x]
+print(list(mapcat(test, [[1], [2], [3]])))
 
 
 

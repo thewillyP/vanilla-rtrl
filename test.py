@@ -44,7 +44,7 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
         self.num_layers = num_layers
         self.hidden_size = hidden_size
-        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True, nonlinearity='relu')
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True, nonlinearity='relu')  # sampels weights from uniform which is pretty big
         # -> x needs to be: (batch_size, seq, input_size)
         
         # or:

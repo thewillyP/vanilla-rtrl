@@ -39,11 +39,24 @@ def snd(pair: tuple[X, Y]) -> Y:
     _, y = pair 
     return y
 
-def flatFst(stream: Iterator[tuple[Iterator[X], Y]]) -> Iterator[tuple[X, Y]]:
-    i1 = concat(map(fst, stream))
-    i2 = map(snd, stream)
-    return map(lambda x, y: (x, y), i1, i2)
+# def flatFst(stream: Iterator[tuple[Iterator[X], Y]]) -> Iterator[tuple[X, Y]]:
+#     i1 = concat(map(fst, stream))
+#     i2 = map(snd, stream)
+#     return map(lambda x, y: (x, y), i1, i2)
 
 
 reduce_ = curry(lambda fn, x, xs: reduce(fn, xs, x))
+
+
+# reverse of sequenceA? which doesn't exist so custom logic
+@curry
+def traverseTuple(pair: tuple[Iterator[X], Y]) -> Iterator[tuple[X, Y]]:
+    xs, y = pair 
+    return ((x, y) for x in xs)
+
+
+@curry
+def mapTuple1(f, pair):
+    a, b = pair 
+    return (f(a), b)
 
