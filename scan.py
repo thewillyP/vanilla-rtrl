@@ -134,6 +134,7 @@ def updateParameterState(optimizer, lossFn, h, parameters, observation):
 
     _, label = observation
 
+
     if label is not None:  # None is a substitute for the Maybe monad for now
         _, readout = parameters
         loss = lossFn(readout(h), label)
@@ -142,7 +143,7 @@ def updateParameterState(optimizer, lossFn, h, parameters, observation):
         optimizer.step() # 😱😱😱😱😱
 
         # 😱😱😱
-        if (step+1) % 100 == 0:
+        if (step+1) % 5 == 0:
             print (f'Step [{step+1}], Loss: {loss.item():.4f}')
         step += 1
     return parameters  # autograd state implictly updates these guys. 

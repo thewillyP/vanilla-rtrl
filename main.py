@@ -31,7 +31,7 @@ from scan import *
 # Hyper-parameters 
 # input_size = 784 # 28x28
 num_classes = 10
-num_epochs = 20
+num_epochs = 10
 batch_size = 100
 
 input_size = 28
@@ -68,7 +68,6 @@ test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
 
 
 W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
-# lossFn = lambda h, t: f.cross_entropy(linear_(W_out_, b_out_, h), t)
 readout = linear_(W_out_, b_out_)
 optimizer = torch.optim.Adam([W_rec_, W_in_, b_rec_, W_out_, b_out_], lr=learning_rate)  
 
@@ -85,85 +84,41 @@ getHiddenStates = nonAutonomousStateful(  updateHiddenState
 
 
 
-#%%
+image2Rows = compose(traverseTuple, mapTuple1(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)))  # [28, N, 28] -> [N, 28] (batch, input vector)
+
+getOutputs = lambda initState: compose(map(hideStateful)
+                                    , drop(1)  # non-autnonmous scan returns h0 w/o +input, whose readout we don't care
+                                    , take_nth(sequence_length)
+                                    , getHiddenStates(initState)  
+                                    , mapcat(image2Rows)) 
+
+outputs = getOutputs(stateM0)
+doEpochs = mapcat(outputs)
+epochs = epochsIO(num_epochs, train_loader)
+
+_, (pN, readoutN) = last(doEpochs(epochs))
 
 
-# @profile
-def test():
-
-    image2Rows = compose(traverseTuple, mapTuple1(lambda image: image.reshape(-1, sequence_length, input_size).permute(1, 0, 2)))  # [28, N, 28] -> [N, 28] (batch, input vector)
-    
-    getOutputs = lambda initState: compose(map(hideStateful)
-                                        , drop(1)  # non-autnonmous scan returns h0 w/o +input, whose readout we don't care
-                                        , take_nth(sequence_length)
-                                        , getHiddenStates(initState)  
-                                        , mapcat(image2Rows)) 
-    
-    outputs = getOutputs(stateM0)
-    doEpochs = mapcat(outputs)
-    epochs = epochsIO(num_epochs, train_loader)
-
-    start = time.time()
-    _, (pN, readoutN) = last(doEpochs(epochs))
-    end = time.time()
-    print(end - start)
+def predict(output, target):
+    _, predicted = torch.max(output.data, 1)
+    n_samples = target.size(0)
+    n_correct = (predicted == target).sum().item()
+    return (n_samples, n_correct)
 
 
+accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
+                    , totalStatistic(predict, lambda res, pair: (res[0] + pair[0], res[1] + pair[1])))
 
+with torch.no_grad():
+    xs_test, ys_test = tee(test_loader, 2)
+    xtream_test, targets_test = map(compose(lambda x: (x, None), fst), xs_test), map(snd, ys_test)
 
-
-    def predict(output, target):
-        _, predicted = torch.max(output.data, 1)
-        n_samples = target.size(0)
-        n_correct = (predicted == target).sum().item()
-        return (n_samples, n_correct)
-
-
-    accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
-                        , totalStatistic(predict, lambda res, pair: (res[0] + pair[0], res[1] + pair[1])))
-
-    with torch.no_grad():
-        xs_test, ys_test = tee(test_loader, 2)
-        xtream_test, targets_test = map(compose(lambda x: (x, None), fst), xs_test), map(snd, ys_test)
-
-        def getReadout(pair):
-            h, (_, rd) = pair 
-            return rd(h)
-        testOuputs = compose( map(getReadout)
-                            , getOutputs((-1, h0, (pN, readoutN))))
-        print(accuracy(testOuputs, xtream_test, targets_test))
-
-if __name__ == '__main__':
-    test()
-
-# print(compose(list, map(lambda x: x.dtype), take(2), streamImageRows)(xtream))
-# print(compose(list, take(1), zip(myRnnModel(streamImageRows(xtream)), ystream)))
-# print(compose(list, take(1), myRnnModel, streamImageRows)(xtream))
-# print(compose(list, take(1), map(type), map(lambda x: x[1][0]), enumerate)(xtream))
-
-
-# usage of lot of maps implies I can refactor to compose functions and do one big map instead
-
-# for epoch in range(num_epochs):
-#     for i, (images, labels) in enumerate(train_loader):  
-#         # origin shape: [N, 1, 28, 28]
-#         # resized: [N, 28, 28]
-#         images = images.reshape(-1, sequence_length, input_size).to(device)
-#         labels = labels.to(device)
-        
-#         # Forward pass
-#         outputs = model(images)
-#         loss = criterion(outputs, labels)
-        
-#         # Backward and optimize
-#         optimizer.zero_grad()
-#         loss.backward()
-#         optimizer.step()
-        
-#         if (i+1) % 100 == 0:
-#             print (f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{n_total_steps}], Loss: {loss.item():.4f}')
-
-
+    def getReadout(pair):
+        h, (_, rd) = pair 
+        return rd(h)
+    testOuputs = compose( map(getReadout)
+                        , getOutputs((-1, h0, (pN, readoutN))))
+    print(accuracy(testOuputs, xtream_test, targets_test))
 
 
 #%%
