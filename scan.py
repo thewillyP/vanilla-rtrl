@@ -79,23 +79,34 @@ def initializeParametersIO(n_in: int, n_h: int, n_out: int
     return _W_rec, _W_in, _b_rec, _W_out, _b_out
 
 
-# @curry
-# def supervisions( lossFn: Callable[[T, Y], Z]
-#                 , outputMap: Callable[[Iterator[X]], Iterator[T]]
-#                 , inputs: Iterator[X]
-#                 , targets: Iterator[Y]) -> Iterator[Z]:
-#     return map(lossFn, outputMap(inputs), targets) 
-
-
 @curry
 def hideStateful(triplet):
     _, h, p = triplet
     return h, p
 
-# @curry
-# def resetHiddenStateAt(n0, h_reset, s, h, p):
-#     return (1, h_reset, p) if n0 == s else (s+1, h, p)
 
+
+@curry
+def incrementCounter(s, fn1, fn2):
+    return (s+1, fn1, fn2)
+
+@curry # code dup bc trying to compose 3 args at once
+def composeST(st2, st1):
+    def c(s, h, p):
+        s1, h1, p1 = st1(s, h, p)
+        return st2(s1, h1, p1)
+    return c
+
+@curry
+def backPropAt(n0, parameterUpdateFn, s, fn1, fn2):
+    return (s, fn1, parameterUpdateFn) if s > 0 and (s+1) % n0 == 0 else (s, fn1, fn2)  # s+1 bc backprop right before hidden state reset
+
+
+tt = 0
+@curry
+def resetHiddenStateAt(n0, h_reset, s, fn1, fn2):
+    resetFn = lambda _, p_, x_: fn1(h_reset, p_, x_)
+    return (s, resetFn, fn2) if s % n0 == 0 else (s, fn1, fn2)
 
 
 
@@ -118,21 +129,35 @@ step = 0
 
 # TODO: Figure out how to make this purely functional alter. 
 @curry
-def updateParameterState(optimizer, h, parameters, observation):
+def updateParameterState(optimizer, lossFn, h, parameters, observation):
     global step # 😱😱😱😱😱
 
     _, label = observation
-    forwProp, lossFn = parameters
-    loss = lossFn(h, label)
-    optimizer.zero_grad()  ### 😱😱😱😱
-    loss.backward()  # 😱😱😱😱
-    optimizer.step() # 😱😱😱😱😱
 
-    # 😱😱😱
-    if (step+1) % 100 == 0:
-        print (f'Step [{step+1}], Loss: {loss.item():.4f}')
-    step += 1
-    return (forwProp, lossFn)  # autograd state implictly updates these guys. 
+    if label is not None:  # None is a substitute for the Maybe monad for now
+        _, readout = parameters
+        loss = lossFn(readout(h), label)
+        optimizer.zero_grad()  ### 😱😱😱😱
+        loss.backward()  # 😱😱😱😱
+        optimizer.step() # 😱😱😱😱😱
+
+        # 😱😱😱
+        if (step+1) % 100 == 0:
+            print (f'Step [{step+1}], Loss: {loss.item():.4f}')
+        step += 1
+    return parameters  # autograd state implictly updates these guys. 
+
+
+@curry
+def supervisions( lossFn: Callable[[T, Y], Z]
+                , outputMap: Callable[[Iterator[X]], Iterator[T]]
+                , inputs: Iterator[X]
+                , targets: Iterator[Y]) -> Iterator[Z]:
+    return map(lossFn, outputMap(inputs), targets) 
+
+
+def totalStatistic(compare: Callable[[X, Y], Z], aggregate: Callable[[Z, Z], T]):
+    return compose(curry(reduce)(aggregate), supervisions(compare))
 
 
 # def closure1(forwProp, h, parameters, observation):
@@ -185,8 +210,7 @@ def updateParameterState(optimizer, h, parameters, observation):
 
 
 
-# def totalStatistic(compare: Callable[[X, Y], Z], aggregate: Callable[[Z, Z], T]):
-#     return compose(curry(reduce)(aggregate), supervisions(compare))
+
 
 
 # def backPropagateIO(loss, optimizer):

@@ -19,7 +19,7 @@ from functions import *
 from gen_data.Add_Memory_Task import *
 import matplotlib.pyplot as plt
 from typing import TypeVar, Callable, Generic, Generator, Iterator
-from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take, drop, mapcat
+from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take, drop, mapcat, last
 from functools import reduce
 import torchvision
 import torchvision.transforms as transforms
@@ -31,7 +31,7 @@ from scan import *
 # Hyper-parameters 
 # input_size = 784 # 28x28
 num_classes = 10
-num_epochs = 1
+num_epochs = 20
 batch_size = 100
 
 input_size = 28
@@ -68,68 +68,22 @@ test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
 
 
 W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
-lossFn = lambda h, t: f.cross_entropy(linear_(W_out_, b_out_, h), t)
+# lossFn = lambda h, t: f.cross_entropy(linear_(W_out_, b_out_, h), t)
+readout = linear_(W_out_, b_out_)
 optimizer = torch.optim.Adam([W_rec_, W_in_, b_rec_, W_out_, b_out_], lr=learning_rate)  
 
 
 p0 = rnnTransition(W_in_, W_rec_, b_rec_, activation_, alpha_)
 h0 = torch.zeros(batch_size, hidden_size, dtype=torch.float32)
-stateM0 = (-1, h0, (p0, lossFn))
-
-
-
-@curry
-def incrementCounter(s, fn1, fn2):
-    return (s+1, fn1, fn2)
-
-@curry # code dup bc trying to compose 3 args at once
-def composeST(st2, st1):
-    def c(s, h, p):
-        s1, h1, p1 = st1(s, h, p)
-        return st2(s1, h1, p1)
-    return c
-
-
-@curry
-def backPropAt(n0, s, fn1, fn2):
-    return (s, fn1, updateParameterState(optimizer)) if s > 0 and (s+1) % n0 == 0 else (s, fn1, fn2)  # s+1 bc backprop right before hidden state reset
-
-tt = 0
-@curry
-def resetHiddenStateAt(n0, h_reset, s, fn1, fn2):
-    resetFn = lambda _, p_, x_: fn1(h_reset, p_, x_)
-    return (s, resetFn, fn2) if s % n0 == 0 else (s, fn1, fn2)
-
-
-putState = composeST(backPropAt(sequence_length), composeST(resetHiddenStateAt(sequence_length, h0), incrementCounter))
-
+stateM0 = (-1, h0, (p0, readout))
+putState = composeST( backPropAt(sequence_length, updateParameterState(optimizer, f.cross_entropy)) # 😱😱😱😱😱
+        ,  composeST( resetHiddenStateAt(sequence_length, h0)
+                    , incrementCounter))
 getHiddenStates = nonAutonomousStateful(  updateHiddenState
-                                        , noParamUpdate  # 😱😱😱😱😱
-                                        , putState) 
+                                        , noParamUpdate  
+                                        , putState) # 😱😱😱😱😱
 
 
-
-
-
-
-# I don't want to apply statem0 immed since I might want to start with a trained version isntead
-
-
-
-
-#%%
-
-
-#%%
-def predict(output, target):
-    _, predicted = torch.max(output.data, 1)
-    n_samples = target.size(0)
-    n_correct = (predicted == target).sum().item()
-    return (n_samples, n_correct)
-
-
-# accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
-#                     , totalStatistic(predict, lambda res, pair: (res[0] + pair[0], res[1] + pair[1])))
 
 #%%
 
@@ -150,19 +104,34 @@ def test():
     epochs = epochsIO(num_epochs, train_loader)
 
     start = time.time()
-    for i, (h, fp) in enumerate(doEpochs(epochs)):  # Ideally I would want to get the new weights, then update my transition function
-        pass
-        # if (i+1) % 100 == 0:
-        #     print(h)
-            # print (f'Epoch [{1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {l.item():.4f}')
-    # end = time.time()
-    # print(end - start)
+    _, (pN, readoutN) = last(doEpochs(epochs))
+    end = time.time()
+    print(end - start)
 
-    # # Get prediction accuracy
-    # with torch.no_grad():
-    #     xs_test, ys_test = tee(test_loader, 2)
-    #     xtream_test, targets_test = map(fst, xs_test), map(snd, ys_test)
-    #     # print(accuracy(# TODO -> outputs, xs_test, targets_test))
+
+
+
+
+    def predict(output, target):
+        _, predicted = torch.max(output.data, 1)
+        n_samples = target.size(0)
+        n_correct = (predicted == target).sum().item()
+        return (n_samples, n_correct)
+
+
+    accuracy = compose(   lambda pair: 100.0 * pair[1] / pair[0]
+                        , totalStatistic(predict, lambda res, pair: (res[0] + pair[0], res[1] + pair[1])))
+
+    with torch.no_grad():
+        xs_test, ys_test = tee(test_loader, 2)
+        xtream_test, targets_test = map(compose(lambda x: (x, None), fst), xs_test), map(snd, ys_test)
+
+        def getReadout(pair):
+            h, (_, rd) = pair 
+            return rd(h)
+        testOuputs = compose( map(getReadout)
+                            , getOutputs((-1, h0, (pN, readoutN))))
+        print(accuracy(testOuputs, xtream_test, targets_test))
 
 if __name__ == '__main__':
     test()
