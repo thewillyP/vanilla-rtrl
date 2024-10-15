@@ -143,8 +143,8 @@ def updateParameterState(optimizer, lossFn, h, parameters, observation):
         optimizer.step() # 😱😱😱😱😱
 
         # 😱😱😱
-        if (step+1) % 5 == 0:
-            print (f'Step [{step+1}], Loss: {loss.item():.4f}')
+        if (step+1) % 100 == 0:
+            print (f'Step [{step+1}], Loss: {loss.item():.10f}')
         step += 1
     return parameters  # autograd state implictly updates these guys. 
 

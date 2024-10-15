@@ -19,7 +19,7 @@ from functions import *
 from gen_data.Add_Memory_Task import *
 import matplotlib.pyplot as plt
 from typing import TypeVar, Callable, Generic, Generator, Iterator
-from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take, drop, mapcat, last
+from toolz.curried import curry, compose, identity, take_nth, accumulate, apply, map, concat, take, drop, mapcat, last, cons
 from functools import reduce
 import torchvision
 import torchvision.transforms as transforms
@@ -64,7 +64,7 @@ test_loader = take(sequence_length * num_examples, cycle(zip(Xs, Ys)))
 
 #%% Setup RNN
 
-num_epochs = 1
+num_epochs = 10
 
 n_out = 1
 n_in = 2
@@ -98,24 +98,23 @@ getOutputs = lambda initState: compose(   map(hideStateful)
 
 outputs = getOutputs(stateM0)
 doEpochs = mapcat(outputs)
-epochs = epochsIO(num_epochs, train_loader)
+epochs = (take(sequence_length * num_examples, cycle(zip(Xs, Ys))) for _ in range(num_epochs))
 
 _, (pN, readoutN) = last(doEpochs(epochs))
 
 
-# for x in doEpochs(epochs):
-#     print(x)
+with torch.no_grad():
+    xs_test, ys_test = tee(test_loader, 2)
+    xtream_test, targets_test = map(compose(lambda x: (x, None), fst), xs_test), map(snd, ys_test)
 
-
-# accuracy = totalStatistic(f.mse_loss, add)
-
-# with torch.no_grad():
-#     xs_test, ys_test = tee(test_loader, 2)
-#     xtream_test, targets_test = map(compose(lambda x: (x, None), fst), xs_test), map(snd, ys_test)
-
-#     def getReadout(pair):
-#         h, (_, rd) = pair 
-#         return rd(h)
-#     testOuputs = compose( map(getReadout)
-#                         , getOutputs((-1, h0, (pN, readoutN))))
-#     print(accuracy(testOuputs, xtream_test, targets_test))
+    def getReadout(pair):
+        h, (_, rd) = pair 
+        return rd(h)
+    testOuputs = compose( map(getReadout)
+                        , getOutputs((-1, h0, (pN, readoutN))))
+    accuracy = compose(   curry(reduce)(add)  
+                        , drop(1)
+                        , take_nth(sequence_length)
+                        , cons(None)
+                        , map(f.mse_loss))(testOuputs(xtream_test), targets_test)
+    print(accuracy)
