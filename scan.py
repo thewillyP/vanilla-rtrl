@@ -35,10 +35,10 @@ def createRecurrenceBinop(fn1: Callable[[H, P, X], H], fn2: Callable[[H, P, X], 
 def createRecurrenceBinopStateful(fn1: Callable[[H, P, X], H], fn2: Callable[[H, P], P], put: Callable[[S, H, P], tuple[S, H, P]]) -> Callable[[tuple[S, H, P], X], tuple[S, H, P]]:
     @curry
     def recurrenceBinopStateful(state: tuple[S, H, P], x: X) -> tuple[S, H, P]:
-        s_, h0_, p0_ = state 
-        s, h0, p0 = put(s_, h0_, p0_)
-        h1 = fn1(h0, p0, x)
-        p1 = fn2(h1, p0, x)
+        s_, h0, p0 = state 
+        s, fn1_, fn2_ = put(s_, fn1, fn2)  # Will always have access to original fn under closure
+        h1 = fn1_(h0, p0, x) # fn1 dictate behavior and we want to use state to cchange behavior
+        p1 = fn2_(h1, p0, x)
         return s, h1, p1
     return recurrenceBinopStateful
 
@@ -92,15 +92,18 @@ def hideStateful(triplet):
     _, h, p = triplet
     return h, p
 
-@curry
-def resetHiddenStateAt(n0, h_reset, s, h, p):
-    return (1, h_reset, p) if n0 == s else (s+1, h, p)
+# @curry
+# def resetHiddenStateAt(n0, h_reset, s, h, p):
+#     return (1, h_reset, p) if n0 == s else (s+1, h, p)
 
+
+
+
+def epochsIO(n: int, loader: torch.utils.data.DataLoader):
+    return (loader for _ in range(n))
 
 
 linear_ = curry(lambda w, b, h: f.linear(h, w, bias=b))
-
-# updateHiddenState = lambda h, fp, x: fp(h, x)
 
 noParamUpdate = lambda _, fp, __: fp
 
@@ -110,15 +113,25 @@ def updateHiddenState(h, parameters, observation):
     forwProp, _ = parameters
     return forwProp(h, x)
 
+
+step = 0
+
 # TODO: Figure out how to make this purely functional alter. 
 @curry
 def updateParameterState(optimizer, h, parameters, observation):
+    global step # 😱😱😱😱😱
+
     _, label = observation
     forwProp, lossFn = parameters
     loss = lossFn(h, label)
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    optimizer.zero_grad()  ### 😱😱😱😱
+    loss.backward()  # 😱😱😱😱
+    optimizer.step() # 😱😱😱😱😱
+
+    # 😱😱😱
+    if (step+1) % 100 == 0:
+        print (f'Step [{step+1}], Loss: {loss.item():.4f}')
+    step += 1
     return (forwProp, lossFn)  # autograd state implictly updates these guys. 
 
 
@@ -162,16 +175,14 @@ def updateParameterState(optimizer, h, parameters, observation):
 # l.backward()
 # optimizer.step()
 
-getHiddenStates = curry(nonAutonomous(updateHiddenState, noParamUpdate))
+# getHiddenStates = curry(nonAutonomous(updateHiddenState, noParamUpdate))
 
-getHiddenStatesStateful = lambda updateState: nonAutonomousStateful(  updateHiddenState
-                                                                    , noParamUpdate
-                                                                    , updateState)
+# getHiddenStatesStateful = lambda updateState: nonAutonomousStateful(  updateHiddenState
+#                                                                     , noParamUpdate
+#                                                                     , updateState)
 
 
 
-def epochsIO(n: int, loader: torch.utils.data.DataLoader):
-    return (loader for _ in range(n))
 
 
 # def totalStatistic(compare: Callable[[X, Y], Z], aggregate: Callable[[Z, Z], T]):

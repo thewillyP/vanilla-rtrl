@@ -69,10 +69,46 @@ test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
 
 W_rec_, W_in_, b_rec_, W_out_, b_out_ = initializeParametersIO(input_size, hidden_size, num_classes)
 lossFn = lambda h, t: f.cross_entropy(linear_(W_out_, b_out_, h), t)
+optimizer = torch.optim.Adam([W_rec_, W_in_, b_rec_, W_out_, b_out_], lr=learning_rate)  
+
+
 p0 = rnnTransition(W_in_, W_rec_, b_rec_, activation_, alpha_)
 h0 = torch.zeros(batch_size, hidden_size, dtype=torch.float32)
-stateM0 = (0, h0, (p0, lossFn))
-getHiddenStates = getHiddenStatesStateful(resetHiddenStateAt(sequence_length, h0))
+stateM0 = (-1, h0, (p0, lossFn))
+
+
+
+@curry
+def incrementCounter(s, fn1, fn2):
+    return (s+1, fn1, fn2)
+
+@curry # code dup bc trying to compose 3 args at once
+def composeST(st2, st1):
+    def c(s, h, p):
+        s1, h1, p1 = st1(s, h, p)
+        return st2(s1, h1, p1)
+    return c
+
+
+@curry
+def backPropAt(n0, s, fn1, fn2):
+    return (s, fn1, updateParameterState(optimizer)) if s > 0 and (s+1) % n0 == 0 else (s, fn1, fn2)  # s+1 bc backprop right before hidden state reset
+
+tt = 0
+@curry
+def resetHiddenStateAt(n0, h_reset, s, fn1, fn2):
+    resetFn = lambda _, p_, x_: fn1(h_reset, p_, x_)
+    return (s, resetFn, fn2) if s % n0 == 0 else (s, fn1, fn2)
+
+
+putState = composeST(backPropAt(sequence_length), composeST(resetHiddenStateAt(sequence_length, h0), incrementCounter))
+
+getHiddenStates = nonAutonomousStateful(  updateHiddenState
+                                        , noParamUpdate  # 😱😱😱😱😱
+                                        , putState) 
+
+
+
 
 
 
@@ -82,7 +118,6 @@ getHiddenStates = getHiddenStatesStateful(resetHiddenStateAt(sequence_length, h0
 
 
 #%%
-optimizer = torch.optim.Adam([W_rec_, W_in_, b_rec_, W_out_, b_out_], lr=learning_rate)  
 
 
 #%%
@@ -116,8 +151,9 @@ def test():
 
     start = time.time()
     for i, (h, fp) in enumerate(doEpochs(epochs)):  # Ideally I would want to get the new weights, then update my transition function
-        if (i+1) % 100 == 0:
-            print(h)
+        pass
+        # if (i+1) % 100 == 0:
+        #     print(h)
             # print (f'Epoch [{1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {l.item():.4f}')
     # end = time.time()
     # print(end - start)
